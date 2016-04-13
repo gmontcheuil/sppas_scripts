@@ -48,15 +48,11 @@ def process_files(files, opts):
         @param files the file(s) to process
     """
     from annotationdata import Rel, Filter, RelationFilter
+    from annotationdata.filter.delay_relations import IntervalsDelay, Delay
     
-    p = ( Rel("equals") # P-Fb equals M-Voc
-        | Rel(after=1.) # P-Fb after M-Voc (max: 1s)
-        | Rel("metby") # P-Fb metby M-Voc (i.e. P-Fb just after M-Voc)
-        | Rel("overlappedby") # P-Fb overlapped by M-Voc (i.e. P-Fb starts during M-Voc)
-        | Rel("starts") | Rel("startedby") # P-Fb start at same time of M-Voc
-        | Rel("finishedby") # P-Fb starts after M-Voc and ends at same time
-        | Rel("during") # P-Fb starts after M-Voc and ends before
-        )
+    p = IntervalsDelay.create('start_start', (None, 0) # X=Pfb starts after Y=MVoc starts <=> Xs >= Ys <=> Ys-Xs <= 0
+            , 'start_end', (-1, None) # AND X=Pfb starts at least 1s after Y=MVoc ends <=> -inf < Xs-Ye <= 1s <=> -inf > Ye-Xs => 1s
+            )
     for f in files:
         print("[%s] Loading annotation file..." % f)
         # Read an annotated file, put content in a Transcription object.
@@ -88,10 +84,36 @@ def process_files(files, opts):
         # Combine the 2 tiers
         fMVoc = Filter(tMVoc); fPFb=Filter(tPFb);
         rf = RelationFilter(p,fPFb,fMVoc)
-        newtier = rf.Filter(annotformat="{x} [{rel}({y})]")
+        #rf = RelationFilter(p,fMVoc,fPFb) # we us the 'reverse' relation
+        #newtier = rf.Filter(annotformat="{x} [{rel}({y})]")
+        newtier = rf.Filter(annotformat="{x} [after({y})]")
+        #newtier = rf.Filter(annotformat="{y} [after({x})]") # we us the 'reverse' relation
         newtier.SetName('P-fb-after-M-Voc')
         print("[%s] filter tier %s has %d annotations" % (f, newtier.GetName(), newtier.GetSize()))
         trs.Append(newtier)
+        # Analyse rf results
+        if True:
+            groups = {'after':[], 'overlap':[]}
+            for x, rel, y in rf:
+                if rel[1].delay<0:    # rel is a conjunction of 2 relations, the second give use the Xstart-Yend delay
+                    groups['after'].append((x, rel, y)); # feedback start after the vocabulaire
+                else:
+                    groups['overlap'].append((x, rel, y)); # feedback start during the vocabulaire
+            if groups['overlap']:
+                ssmean = mean(-rel[0].delay for (x, rel, y) in groups['overlap'])
+                sspercentmean = mean( (-rel[0].delay / (y.GetLocation().GetDuration())) for (x, rel, y) in groups['overlap'])
+                print ("{} feedbacks starts during the 'vocabulaire'".format(len(groups['overlap']))
+                      +"\n\tStart-Start mean delay is {}".format(ssmean)
+                      +"\n\tFeedback mean start is at {:%} of the Voc".format(ssmean)
+                      )
+            if groups['after']:
+                ssmean = mean(-rel[0].delay for (x, rel, y) in groups['after'])
+                esmean = mean(-rel[1].delay for (x, rel, y) in groups['after'])
+                print ("{} feedbacks starts after the 'vocabulaire'".format(len(groups['after']))
+                      +"\n\tStart-Start mean delay is {}".format(ssmean)
+                      +"\n\tVoc end - FB start mean delay is {}".format(esmean)
+                      +"\n\tVoc end - FB start delays are {}".format([-rel[1].delay for (x, rel, y) in groups['after']])
+                      )
 
         # Write the resulting file
         of = re.sub(r"\.\w+$", "-fbAfter\g<0>", f)
@@ -99,8 +121,14 @@ def process_files(files, opts):
         annotationdata.io.write(of, trs)
 
 
-
-        
+def mean(list_):
+    """
+    Compute the mean of the values of a list
+    """
+    sum_=0.; n=0;
+    for v in list_:
+        sum_ += float(v); n+=1
+    return sum_/n if n else 0;
 
 
 # ----------------------------------------------------------------------------

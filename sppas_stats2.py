@@ -10,6 +10,7 @@
 from __future__ import print_function   # print to file/stderr
 import os, argparse
 import re
+from collections import namedtuple
 
 # work in UTF-8
 import sys
@@ -48,11 +49,21 @@ def process_files(files, opts):
         @param files the file(s) to process
     """
     from annotationdata import Rel, Filter, RelationFilter
-    from annotationdata.filter.delay_relations import IntervalsDelay, Delay
+    from annotationdata.filter.delay_relations import IntervalsDelay, Delay, AndPredicates
     
-    p = IntervalsDelay.create('start_start', (None, 0) # X=Pfb starts after Y=MVoc starts <=> Xs >= Ys <=> Ys-Xs <= 0
-            , 'start_end', (-1, None) # AND X=Pfb starts at least 1s after Y=MVoc ends <=> -inf < Xs-Ye <= 1s <=> -inf > Ye-Xs => 1s
-            )
+    # create the predicates
+    # [1] pDuringAfter <=> P-feedback(X) start during or a few time(1s) after Vocabulaire (Y)
+    FbStart_VocEnd_Max = 1.   # max time between feedback and previous vocabulary
+    #pDuringAfter = IntervalsDelay.create('start_start', (None, 0) # X=Pfb starts after Y=MVoc starts <=> Xs >= Ys <=> Ys-Xs <= 0
+    #        , 'start_end', (-FbStart_VocEnd_Max, None) # AND X=Pfb starts at least 1s after Y=MVoc ends <=> -inf < Xs-Ye <= 1s <=> -inf > Ye-Xs => 1s
+    #        )
+    # (a) pStartStart : X (P-feedback) starts after Y (Vocabulaire) starts <=> delay(Xstart - Ystart) >= 0
+    pStartStart = IntervalsDelay.create('after', 'start_start_min', 0) # X=Pfb starts after Y=MVoc starts <=> Xs >= Ys <=> Ys-Xs <= 0
+    # (b) pStartEnd : X (P-feedback) starts at the latest 1s after Y (Vocabulaire) ends <=> -infinity < delay(Xstart - Yends) <= 1s
+    #   nota: -infinity as X can start during Y, the pStartStart allow to eliminate the case of X start before Y
+    pStartEnd = IntervalsDelay.create('after', 'start_end', (None, FbStart_VocEnd_Max))
+    # => 
+    pDuringAfter = AndPredicates(pStartStart, pStartEnd)
     for f in files:
         print("[%s] Loading annotation file..." % f)
         # Read an annotated file, put content in a Transcription object.
@@ -81,10 +92,25 @@ def process_files(files, opts):
             print("[%s] %d unfound tier(s) => skip this file")
             break;
 
+        # Compute the inter P-Feedback delays
+        if len(tPFb)>1:
+            esPred = IntervalsDelay.create('end_start_min',0.)  # compute the end-start delay
+            esDelays=[]
+            lastAnn=None
+            for ann in tPFb:
+                if lastAnn is not None:
+                    esDelays.append(esPred(lastAnn, ann))
+                lastAnn = ann
+            esDelaysStats = stats(esDelays)
+            firstStart = tPFb[0].GetLocation().GetBegin()
+            #print("[{f}] First P-Feedback at {firstStart}, inter-feedbacks delays: {esDelays}".format(**locals()))
+            print("\tFirst P-Feedback at {firstStart}, inter-feedbacks delays: mean={s.Mean:.3f} [{s.Min:.3f~.3f}, {s.Max:.3f~.3f}]".format(s=esDelaysStats, **locals()))
+
+
         # Combine the 2 tiers
         fMVoc = Filter(tMVoc); fPFb=Filter(tPFb);
-        rf = RelationFilter(p,fPFb,fMVoc)
-        #rf = RelationFilter(p,fMVoc,fPFb) # we us the 'reverse' relation
+        rf = RelationFilter(pDuringAfter,fPFb,fMVoc)
+        #rf = RelationFilter(pDuringAfter,fMVoc,fPFb) # we us the 'reverse' relation
         #newtier = rf.Filter(annotformat="{x} [{rel}({y})]")
         newtier = rf.Filter(annotformat="{x} [after({y})]")
         #newtier = rf.Filter(annotformat="{y} [after({x})]") # we us the 'reverse' relation
@@ -93,26 +119,44 @@ def process_files(files, opts):
         trs.Append(newtier)
         # Analyse rf results
         if True:
-            groups = {'after':[], 'overlap':[]}
+            groups = {'after':[], 'during':[], 'all':[]}
+            # group result between after/during
             for x, rel, y in rf:
-                if rel[1].delay<0:    # rel is a conjunction of 2 relations, the second give use the Xstart-Yend delay
-                    groups['after'].append((x, rel, y)); # feedback start after the vocabulaire
+                groups['all'].append((x, rel, y))
+                if rel[1].delay > 0:    # rel[1] correspond to pStartEnd => give use the Xstart-Yend delay
+                    groups['after'].append((x, rel, y)); # feedback start strictly after the vocabulaire
                 else:
-                    groups['overlap'].append((x, rel, y)); # feedback start during the vocabulaire
-            if groups['overlap']:
-                ssmean = mean(-rel[0].delay for (x, rel, y) in groups['overlap'])
-                sspercentmean = mean( (-rel[0].delay / (y.GetLocation().GetDuration())) for (x, rel, y) in groups['overlap'])
-                print ("{} feedbacks starts during the 'vocabulaire'".format(len(groups['overlap']))
-                      +"\n\tStart-Start mean delay is {}".format(ssmean)
-                      +"\n\tFeedback mean start is at {:%} of the Voc".format(ssmean)
+                    groups['during'].append((x, rel, y)); # feedback start during the vocabulaire
+            if groups['all']:
+                group=groups['all']
+                ssDelays = [rel[0].delay for (x, rel, y) in group]    # rel[0] is pStartStart
+                ssStats = stats(ssDelays)
+                yDurStats = stats([y.GetLocation().GetDuration().GetValue() for (x, rel, y) in group]) # Vocabulary durations
+                xDurStats = stats([x.GetLocation().GetDuration().GetValue() for (x, rel, y) in group]) # p-Feedback durations
+                print ("all: {} feedbacks 'linked' to vocabulaire".format(len(group))
+                        +"\n\tStart-Start delays: mean={s.Mean:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=ssStats)
+                        +"\n\tVocabulary durations: mean={s.Mean:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=yDurStats)
+                        +"\n\tFeedback durations: mean={s.Mean:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=xDurStats)
+                      )
+            if groups['during']:
+                group=groups['during']
+                ssDelays = [rel[0].delay for (x, rel, y) in group]    # rel[0] is pStartStart
+                ssStats = stats(ssDelays)
+                ssPercents = [ float((rel[0].delay) / y.GetLocation().GetDuration()) for (x, rel, y) in group]    # at each percent of the Vocabulaire starts the Feedback
+                ssPStats = stats(ssPercents)
+                print ("during: {} feedbacks starts during the 'vocabulaire'".format(len(group))
+                        +"\n\tStart-Start delays: mean={s.Mean:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=ssStats)
+                        +"\n\tPercent of Vocabulary when P-Feedback starts: mean={s.Mean:.0%} [{s.Min:.0%},{s.Max:.0%}]".format(s=ssPStats)
                       )
             if groups['after']:
-                ssmean = mean(-rel[0].delay for (x, rel, y) in groups['after'])
-                esmean = mean(-rel[1].delay for (x, rel, y) in groups['after'])
-                print ("{} feedbacks starts after the 'vocabulaire'".format(len(groups['after']))
-                      +"\n\tStart-Start mean delay is {}".format(ssmean)
-                      +"\n\tVoc end - FB start mean delay is {}".format(esmean)
-                      +"\n\tVoc end - FB start delays are {}".format([-rel[1].delay for (x, rel, y) in groups['after']])
+                group=groups['after']
+                ssDelays = [rel[0].delay for (x, rel, y) in group]    # rel[0] is pStartStart
+                ssStats = stats(ssDelays)
+                seDelays = [rel[1].delay for (x, rel, y) in group]    # rel[1] is pStartEnd
+                seStats = stats(seDelays)
+                print ("after: {} feedbacks starts (at most {:.3f}s) after the 'vocabulaire'".format(len(group), FbStart_VocEnd_Max)
+                        +"\n\tStart-Start delays: mean={s.Mean:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=ssStats)
+                        +"\n\tVocabulaire end - Feedback start delays: mean={s.Mean:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=seStats)
                       )
 
         # Write the resulting file
@@ -120,14 +164,33 @@ def process_files(files, opts):
         print("[%s] Saving file into %s" % (f, of))
         annotationdata.io.write(of, trs)
 
+# ----------------------------------------------------------------------------
+# --- Statistic methods
+# ----------------------------------------------------------------------------
+
+def stats(list_):
+    """
+    Compute various statistics
+    @rtype: something with attributes:
+        - Max/Min : the maximum value
+        - Mean : the mean value
+    """
+    stats = namedtuple('Stats', "Min,Max,Mean") # list of fields
+    stats.Min = min(list_)
+    stats.Max = max(list_)
+    stats.Mean = mean(list_)
+    return stats
 
 def mean(list_):
     """
     Compute the mean of the values of a list
+    @rtype: float
     """
+    from annotationdata.filter.delay_relations import Delay
     sum_=0.; n=0;
     for v in list_:
-        sum_ += float(v); n+=1
+        value, margin = Delay.unpack(v) # safer way to get the value part, as float(Duration) didn't work
+        sum_ += float(value); n+=1
     return sum_/n if n else 0;
 
 

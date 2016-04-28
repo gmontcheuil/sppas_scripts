@@ -10,7 +10,7 @@
 from __future__ import print_function   # print to file/stderr
 import sys, os
 # Tell python whereis SPPAS API
-from os.path import *
+#from os.path import *
 
 # ----------------------------------------------------------------------------
 # --- SPPAS tools
@@ -56,6 +56,9 @@ def load_sppas(opts):
 
 # ----------------------------------------------------------------------------
 def parserAddLoadSPPASArgument(parser):
+    if parser is None:
+        import argparse
+        parser = argparse.ArgumentParser()
     # sppas_dir
     parser.add_argument("-D", "--sppas-dir", dest='sppas_dir'
         , help='change the spass directory (default to SPPAS_DIR environment variable or ${HOME}/bin/sppas-${sppas-version})'
@@ -66,6 +69,7 @@ def parserAddLoadSPPASArgument(parser):
         , help='change the spass version (default to SPPAS_VERSION environment variable)'
         , metavar='<str>'
     )
+    return parser;
 
     
 # ----------------------------------------------------------------------------
@@ -85,3 +89,34 @@ def tierFind(trs, name):
         #else: print("Tier name '{}' != '{}' (searched name)".format(tname, nname))
     return None
 
+def parentdir(f, level=0):
+    i=0; p=f;
+    while (i<level):
+        p = os.path.dirname(p);
+        i+=1
+    return os.path.dirname(p)
+
+# ----------------------------------------------------------------------------
+def main():
+    """ This is the main function to do something. """
+    import argparse
+    # (A) Create the argument parser
+    parser = argparse.ArgumentParser(description='Test the sppas_tools module')
+    # and add the SPPAS arguments
+    parserAddLoadSPPASArgument(parser);
+    # (B) Parse the script arguments
+    opts = argparse.Namespace() # create the result
+    parser.parse_args(namespace=opts)
+    print("Parsed options are :", opts)
+    # (C) Loas SPPAS (annotationdata)
+    load_sppas(opts);
+    spassdir = parentdir(annotationdata.__file__, 3); # sppas/src/annotationdata => 3 level
+    print("SPPAS is loaded from: '%s' (real path: '%s')" % (spassdir, os.path.realpath(spassdir)))
+
+
+# ----------------------------------------------------------------------------
+# This is the python entry point:
+# Here, we just ask to execute the main function.
+if __name__ == '__main__':
+    main()
+# ----------------------------------------------------------------------------

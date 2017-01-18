@@ -54,11 +54,16 @@ def process_files(files, opts):
         # Read an annotated file, put content in a Transcription object.
         trs = annotationdata.io.read(f)
         print("[%s] Number of tiers:%d" % (f, trs.GetSize()))
-        
+      
         # Compute the intra annotation delays
         mVoc_proc_intra = process_intra(trs, 'Vocabulaire')
-        mFb_proc_intra = process_intra(trs, 'M-Feedback')
-        pFb_proc_intra = process_intra(trs, 'P-Feedback')
+        mFb_proc_intra = process_intra(trs, 'M-Feedback', perLabel=True)
+        # Compute the feedbacks per (interaction's) phases 
+        process_feedback_per_phases(trs, 'M-Feedback', 'Script')
+        pFb_proc_intra = process_intra(trs, 'P-Feedback', perLabel=True)
+        # Compute the feedbacks per (interaction's) phases 
+        process_feedback_per_phases(trs, 'P-Feedback', 'Script')
+ 
         
         # Compute the intra Feedback/Eyes Direction relation
         process_feedback_eyes(trs, 'M-Feedback', 'M-Regard')
@@ -66,10 +71,39 @@ def process_files(files, opts):
         
         # Compute the inter Feedback/Eyes Direction relation
         process_feedback_eyes(trs, 'M-Feedback', 'P-Regard')
+        process_feedback_per_phases(trs, 'M-Feedback', 'P-Regard', most_common=True)
         process_feedback_eyes(trs, 'P-Feedback', 'M-Regard')
+        process_feedback_per_phases(trs, 'P-Feedback', 'M-Regard', most_common=True)
 
         # Compute Vocabulaire/P-Feedback relation
-        pFb_mVoc_proc = process_pFb_mVoc(trs, 'P-Feedback', 'Vocabulaire') # /!\ this create the P-fb-after-M-Voc tier
+        #pFb_mVoc_proc = process_pFb_mVoc(trs, 'P-Feedback', 'Vocabulaire', perLabel=True) # /!\ this create the P-fb-after-M-Voc tier
+        pFb_mVoc_proc = process_feedback_after(trs, 'P-Feedback', 'Vocabulaire', after_Max=1., perLabel=True, after_tierAppend=True
+            #, after_tierName="P-fb-after-M-Voc"
+            ); # /!\ this create the P-fb-after-M-Voc tier
+        # Other 'during/after' relations
+        process_feedback_after(trs, 'P-Feedback', 'M-Feedback', after_Max=3., perLabel=True);
+        process_feedback_after(trs, 'M-Feedback', 'P-Feedback', after_Max=3., perLabel=True);
+        # feedback/gestes
+        # - Dimensions
+        process_feedback_after(trs, 'P-Feedback', 'M-Dimensions', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'P-Feedback', 'M-Dimensions', most_common=True);
+        process_feedback_after(trs, 'M-Feedback', 'P-Dimensions', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'M-Feedback', 'P-Dimensions', most_common=True);
+        # - Affiliation lexicale
+        process_feedback_after(trs, 'P-Feedback', 'M-Affiliation lexicale', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'P-Feedback', 'M-Affiliation lexicale', most_common=True);
+        process_feedback_after(trs, 'M-Feedback', 'P-Affiliation lexicale', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'M-Feedback', 'P-Affiliation lexicale', most_common=True);
+        # - Lien geste/parole
+        process_feedback_after(trs, 'P-Feedback', 'M-Lien geste/parole', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'P-Feedback', 'M-Lien geste/parole', most_common=True);
+        process_feedback_after(trs, 'M-Feedback', 'P-Lien geste/parole', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'M-Feedback', 'P-Lien geste/parole', most_common=True);
+        # - Extra-communicative G
+        process_feedback_after(trs, 'P-Feedback', 'M-Extra-communicative G', after_Max=1., perLabel=True);
+        process_feedback_per_phases(trs, 'P-Feedback', 'M-Extra-communicative G', most_common=True);
+        process_feedback_after(trs, 'M-Feedback', 'P-Extra-communicatif G', after_Max=1., perLabel=True); # /!\ communicatif
+        process_feedback_per_phases(trs, 'M-Feedback', 'P-Extra-communicatif G', most_common=True); # /!\ communicatif
 
         # Write the resulting file
         of = re.sub(r"\.\w+$", "-fbAfter\g<0>", f)
@@ -79,13 +113,13 @@ def process_files(files, opts):
 # ----------------------------------------------------------------------------
 # --- sub-process methods
 # ----------------------------------------------------------------------------
-def process_intra(trs, tierName='Feedback'):
+def process_intra(trs, tierName='Feedback', perLabel=False):
     """
     Compute some intra-tier statistic
     @param trs: the annotation file or the tier
     @param tierName: the tier name
     """
-    from annotationdata.filter.delay_relations import IntervalsDelay
+    #from annotationdata.filter.delay_relations import IntervalsDelay
 
     res = namedtuple('Intra', "tier,end_start_delays,end_start_delays_stats,middle_middle_delays,middle_middle_delays_stats") # list of fields
     # (0) Get the tier
@@ -104,27 +138,17 @@ def process_intra(trs, tierName='Feedback'):
     print("\t[{tierName}] {tier_len} annotations (time point radius:{res.radius})".format(tier_len=len(res.tier), **locals()))
     print("\t  durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f}, {s.Max:.3f}]".format(s=res.duration_stats, **locals()))
     # (2) Compute End-Start and Mid-Mid delays
-    if len(res.tier)>1:
-        esPred = IntervalsDelay.create('end_start_min',0.)  # compute the end-start delays
-        mmPred = IntervalsDelay.create('mid_mid_min',0.)  # compute the middle-middle delays
-        res.end_start_delays=[]; res.middle_middle_delays=[];
-        lastAnn=None
-        for ann in res.tier:
-            # inter annotation delays
-            if lastAnn is not None:
-                res.end_start_delays.append(esPred(lastAnn, ann))
-                res.middle_middle_delays.append(mmPred(lastAnn, ann))
-            lastAnn = ann
-        res.end_start_delays_stats = stats(res.end_start_delays);
-        res.middle_middle_delays_stats = stats(res.middle_middle_delays)
-        firstStart = res.tier[0].GetLocation().GetBeginMidpoint()
-        firstMiddle = (res.tier[0].GetLocation().GetBeginMidpoint() + res.tier[0].GetLocation().GetEndMidpoint()) / 2;
-        print("\t  first start at {firstStart}, inter end-start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~}, {s.Max:.3f~}]".format(s=res.end_start_delays_stats, **locals()))
-        print("\t  first middle point at {firstMiddle}, inter middle-middle delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~}, {s.Max:.3f~}]".format(s=res.middle_middle_delays_stats, **locals()))
+    intraDelays(res, "\t  ");
+    # (3) Stats per label
+    if perLabel:
+        if len(res.tier)>1:
+            statsPerLabel(res.tier, "\t\t", normLabelWithSep
+                , intraDelays 
+            );
     # return
     return res
 
-def process_pFb_mVoc(trs, pFb_tierName='P-Feedback', mVoc_tierName='Vocabulaire'):
+def process_pFb_mVoc(trs, pFb_tierName='P-Feedback', mVoc_tierName='Vocabulaire', perLabel=False):
     """
     Process relation between patient feedbacks and medical vocabulary
     """
@@ -203,6 +227,9 @@ def process_pFb_mVoc(trs, pFb_tierName='P-Feedback', mVoc_tierName='Vocabulaire'
                     +"\n\t    Vocabulary durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=yDurStats)
                     +"\n\t    Feedback durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=xDurStats)
                   )
+            if perLabel:
+                statsPerLabel([x for (x, rel, y) in group], "\t\t", normLabelWithSep);
+            
         if groups['during']:
             group=groups['during']
             ssDelays = [rel[0].delay for (x, rel, y) in group]    # rel[0] is pStartStart
@@ -213,6 +240,8 @@ def process_pFb_mVoc(trs, pFb_tierName='P-Feedback', mVoc_tierName='Vocabulaire'
                     +"\n\t    Start-Start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~},{s.Max:.3f~}]".format(s=ssStats)
                     +"\n\t    Percent of Vocabulary when P-Feedback starts: mean={s.Mean:.0%}, std.dev.={s.StdDev:.3f} [{s.Min:.0%},{s.Max:.0%}]".format(s=ssPStats)
                   )
+            if perLabel:
+                statsPerLabel([x for (x, rel, y) in group], "\t\t", normLabelWithSep);
         if groups['after']:
             group=groups['after']
             ssDelays = [rel[0].delay for (x, rel, y) in group]    # rel[0] is pStartStart
@@ -223,6 +252,100 @@ def process_pFb_mVoc(trs, pFb_tierName='P-Feedback', mVoc_tierName='Vocabulaire'
                     +"\n\t    Start-Start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~},{s.Max:.3f~}]".format(s=ssStats)
                     +"\n\t    Vocabulaire end - P-Feedback start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~},{s.Max:.3f~}]".format(s=seStats)
                   )
+            if perLabel:
+                statsPerLabel([x for (x, rel, y) in group], "\t\t", normLabelWithSep);
+
+def process_feedback_after(trs, pFb_tierName='P-Feedback', mVoc_tierName='Vocabulaire', after_Max=1., perLabel=False, after_tierAppend=False, after_tierName=None):
+    """
+    Process relation between (patient) feedbacks during/after another tier (b.e. Vocabulaire, ...)
+    """
+    from annotationdata import Filter, RelationFilter#, Rel
+    from annotationdata.filter.delay_relations import IntervalsDelay, AndPredicates
+    
+    #TODO? parameters
+    if isinstance(after_tierName, basestring):
+        after_tierName = after_tierName.format(**locals());
+    else:
+        after_tierName = "{pFb_tierName} after {mVoc_tierName}".format(**locals()); # default
+    #after_Max = 1.   # max time between feedback and previous vocabulary
+
+
+    res = namedtuple('res', "mVoc_tier, mVoc_durations, mVoc_duration_stats, mVoc_radius"
+               +", pFb_tier, pFb_durations, pFb_duration_stats, pFb_radius"
+               ) # list of fields
+    # Search  Vocabulaire and P-Feedback tiers
+    not_found=0
+    
+    # (a) 'Vocabulaire'
+    res.mVoc_tier = sppas_tools.tierFind(trs, mVoc_tierName)
+    if res.mVoc_tier is None:
+        print("\t[{mVoc_tierName}] No tier found ;-(".format(**locals()))
+        not_found+=1
+    # (b) 'P-Feedback'
+    res.pFb_tier = sppas_tools.tierFind(trs, pFb_tierName)
+    if res.pFb_tier is None:
+        print("[{pFb_tierName}] No tier found ;-(".format(**locals()))
+        not_found+=1
+    if not_found:
+        print("[%s] %d unfound tier(s) => skip this file")
+        return;
+
+    # Combine the 2 tiers
+    # - create the predicates
+    # [1] pDuringAfter <=> P-feedback(X) start during or a few time(1s) after Vocabulaire (Y)
+    #pDuringAfter = IntervalsDelay.create('start_start', (None, 0) # X=Pfb starts after Y=MVoc starts <=> Xs >= Ys <=> Ys-Xs <= 0
+    #        , 'start_end', (-after_Max, None) # AND X=Pfb starts at least 1s after Y=MVoc ends <=> -inf < Xs-Ye <= 1s <=> -inf > Ye-Xs => 1s
+    #        )
+    # (a) pStartStart : X (P-feedback) starts after Y (Vocabulaire) starts <=> delay(Xstart - Ystart) >= 0
+    pStartStart = IntervalsDelay.create('after', 'start_start_min', 0) # X=Pfb starts after Y=MVoc starts <=> Xs >= Ys <=> Ys-Xs <= 0
+    # (b) pStartEnd : X (P-feedback) starts at the latest 1s after Y (Vocabulaire) ends <=> -infinity < delay(Xstart - Yends) <= 1s
+    #   nota: -infinity as X can start during Y, the pStartStart allow to eliminate the case of X start before Y
+    pStartEnd = IntervalsDelay.create('after', 'start_end', (None, after_Max))
+    # => 
+    pDuringAfter = AndPredicates(pStartStart, pStartEnd)
+
+    fMVoc = Filter(res.mVoc_tier); fPFb=Filter(res.pFb_tier);
+    rf = RelationFilter(pDuringAfter, fPFb, fMVoc)
+    newtier = rf.Filter(annotformat="{x} [after({y})]")
+    res.pFb_mVoc_tier = newtier
+    if after_tierAppend:
+        newtier.SetName(after_tierName)
+        trs.Append(newtier) # ?
+    print("\t[{after_tierName}] {tier_len} (of {pFb_len}) {pFb_tierName} during/after({after_Max}s) a {mVoc_tierName}".format(tier_len=len(res.pFb_mVoc_tier), pFb_len=len(res.pFb_tier), **locals()))
+    #-- # (1) Annotation, duration
+    #-- res.pFb_mVoc_durations = durations(res.pFb_mVoc_tier)
+    #-- res.pFb_mVoc_duration_stats = stats(res.pFb_mVoc_durations)
+    #-- print("\t  durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f}, {s.Max:.3f}]".format(s=res.pFb_mVoc_duration_stats, **locals()))
+    # Analyse rf results
+    if True:
+        groups = {'after':[], 'during':[], 'all':[]}
+        # group result between after/during
+        for x, rel, y in rf:
+            groups['all'].append((x, rel, y))
+            if rel[1].delay > 0:    # rel[1] correspond to pStartEnd => give use the Xstart-Yend delay
+                groups['after'].append((x, rel, y)); # feedback start strictly after the vocabulaire
+            else:
+                groups['during'].append((x, rel, y)); # feedback start during the vocabulaire
+        # 'all' annotations
+        for gkey in ['all', 'during', 'after']:
+            group=groups[gkey]
+            if not len(group):
+                continue;
+            ssDelays = [rel[0].delay for (x, rel, y) in group]    # rel[0] is pStartStart
+            ssStats = stats(ssDelays)
+            seDelays = [rel[1].delay for (x, rel, y) in group]    # rel[1] is pStartEnd
+            seStats = stats(seDelays)
+            xDurStats = stats(durations([x for (x, rel, y) in group])) # p-Feedback durations
+            yDurStats = stats(durations([y for (x, rel, y) in group])) # Vocabulary durations
+            linked_to = "'linked' to" if gkey=='all' else gkey;
+            print("\t  {gkey}: {gsize} {pFb_tierName} {linked_to} a {mVoc_tierName}".format(gsize=len(group), **locals()))
+            print("\t    Start-Start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~},{s.Max:.3f~}]".format(s=ssStats))
+            if gkey != 'during':
+                print("\t    End-Start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~},{s.Max:.3f~}]".format(s=seStats))
+            print("\t    {mVoc_tierName} durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=yDurStats, **locals()))
+            print("\t    {pFb_tierName} durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f},{s.Max:.3f}]".format(s=xDurStats, **locals()))
+            if perLabel:
+                statsPerLabel([x for (x, rel, y) in group], "\t\t", normLabelWithSep);
 
 def process_feedback_eyes(trs, fb_tierName='Feedback', eyes_tierName='Regard'):
     """
@@ -232,7 +355,6 @@ def process_feedback_eyes(trs, fb_tierName='Feedback', eyes_tierName='Regard'):
     from annotationdata.filter.delay_relations import IntervalsDelay, OrPredicates
     
     #TODO? parameters
-    fb_eyes_tierName='P-fb-after-M-Voc'
     fb_eyes_min_overlap = 1.   # minimum overlap time for overlaps/overlappedby relations
 
 
@@ -408,8 +530,164 @@ def process_feedback_eyes(trs, fb_tierName='Feedback', eyes_tierName='Regard'):
     print("\t   transitions: {cnt}".format(cnt=counterWithPercent(transitionsCnt, sep="\n\t                "), **locals()))
 
 
+def process_feedback_per_phases(trs, fb_tierName='P-Feedback', phases_tierName='Script', most_common=False):
+    """
+    Process relation between feedbacks and 'phases' (Script, eye's directions, ...)
+    """
+    from annotationdata import Filter, SingleFilter, Sel, RelationFilter, Rel
+    from annotationdata.filter.delay_relations import IntervalsDelay, OrPredicates
+    
+    #TODO? parameters
+    fb_phases_min_overlap = 1.   # minimum overlap time for overlaps/overlappedby relations
+    
+    res = namedtuple('res', "phases_tier, phases, phases_counter, phases_radius, perphases"
+               +", fb_tier, fb_durations, fb_duration_stats, fb_radius"
+               ) # list of fields
+
+    # looking for phases labels
+    not_found=0
+    res.phases_tier = sppas_tools.tierFind(trs, phases_tierName)
+    # (a) Phases
+    if res.phases_tier is None:
+        print("\t[{phases_tierName}] No phases tier found ;-(".format(**locals()))
+        not_found+=1
+    # (b) 'P-Feedback'
+    res.fb_tier = sppas_tools.tierFind(trs, fb_tierName)
+    if res.fb_tier is None:
+        print("[{fb_tierName}] No feedbacks tier found ;-(".format(**locals()))
+        not_found+=1
+    if not_found:
+        print("[%s] %d unfound tier(s) => skip this file")
+        return;
+    
+    # Look for the various phases
+    res.phases = []
+    res.perphases=dict();
+    res.phases_counter = Counter();
+    for ph_ann in res.phases_tier:
+        phase = ph_ann.GetLabel().GetValue()
+        res.phases_counter[phase] += 1
+        if res.phases_counter[phase] == 1: #init phases
+            res.phases.append(phase)
+            res.perphases[phase] = namedtuple('perph', "phase, count, tier, durations, sumduration");
+            res.perphases[phase].phase = phase;
+    # sum of annotations/durations of phases_tier
+    ptSize = len(res.phases_tier); ptSumDurations = sum(durations(res.phases_tier));
+    print("\t[{fb_tierName}/{phases_tierName}] {nbphases} phases (#annots:{ptSize}, sum_durations={ptSumDurations:.3f}), {fbsize} feedbacks".format(nbphases=len(res.phases), fbsize=len(res.fb_tier), **locals()))
+    if not len(res.phases):
+        return res; # any phases
+
+    # sort phases by occurences
+    if most_common:
+        res.phases = [ phase for (phase,count) in res.phases_counter.most_common() ];
+    
+    # phases_tier filter
+    ptFilter = Filter(res.phases_tier)
+    # split feedback tier by phases
+    fbFilter = Filter(res.fb_tier)
+    phRel = OrPredicates( Rel('during') # fb during the phase
+        , Rel('starts') # fb starts with the phase (and is shorter)
+        , Rel('finishes') # fb ends with the phase (and is shorter)
+        , Rel(overlappedby=fb_phases_min_overlap) # fb overlaped by the phase (i.e. start during the phase but end after)
+        #?, Rel('startedby') #? fb starts with the phase and is longer
+        )
+    #for phase, perph in res.perphases.items():
+    for phase in res.phases:
+        perph = res.perphases[phase]
+        perph.count = res.phases_counter[phase]
+        phaseFilter = SingleFilter( Sel(exact=phase), ptFilter)
+        perph.tier = phaseFilter.Filter();
+        perph.durations = durations(perph.tier)
+        perph.sum_durations = sum(perph.durations)
+        print("\t  Phase:'{phase}' => #annot={perph.count} ({pannot:.0%}), sum_durations={perph.sum_durations} ({psdur:.0%}) (mean={s.Mean:.3f}, min={s.Min:.3f}, max={s.Max:.3f})".format(s=stats(perph.durations), pannot=float(perph.count)/ptSize, psdur=perph.sum_durations/ptSumDurations, **locals()))
+        rf = RelationFilter(phRel, fbFilter, phaseFilter)
+        perph.fb_tier = rf.Filter(); perph.fb_count = len(perph.fb_tier)
+        perph.fb_durations = durations(perph.fb_tier)
+        perph.fb_sum_durations = sum(perph.fb_durations)
+        perph.fb_per_sec = perph.fb_count / perph.sum_durations if perph.fb_count else 0;
+        perph.sec_per_fb = perph.sum_durations / perph.fb_count if perph.fb_count else 0;
+        print("\t   #feedback={perph.fb_count}, freq={perph.fb_per_sec:.3f}/s (every {perph.sec_per_fb:.3f}s), sum_durations={perph.fb_sum_durations:.3f} ({sdurpercent:.0%})".format(sdurpercent=perph.fb_sum_durations/perph.sum_durations, **locals()))
+        if perph.fb_count:
+            print("\t    durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f}, {s.Max:.3f}]".format(s=stats(perph.fb_durations), **locals()))
+            statsPerLabel(perph.fb_tier, "\t\t", normLabelWithSep
+                #TODO(pb repeated phases)# , intraDelays 
+                );
+    return res;
+
 
 ## sub-process tools
+
+def statsPerLabel(tier, prefix="", normalize=None, moreStats=None):
+    res = namedtuple('res', "labels, labels_count, labels_annotations, labels_durations, labels_sumdurations"
+              #+", fb_tier, fb_durations, fb_duration_stats, fb_radius"
+          ) # list of fields
+    res.labels = []; res.labels_count = Counter();
+    res.labels_annotations = dict();
+    count=0;
+    # group by labels
+    for ann in tier:
+        count += 1;
+        label = ann.GetLabel().GetValue()
+        if normalize:
+            label = normalize(label)
+        res.labels_count[label] += 1
+        if res.labels_count[label] == 1:
+            res.labels.append(label)
+            res.labels_annotations[label] = [] #init
+        res.labels_annotations[label].append(ann)
+    # durations
+    res.labels_durations = dict(); res.labels_sumdurations = dict();
+    sum_durations=0; 
+    for label in res.labels:
+        res.labels_durations[label] = durations(res.labels_annotations[label])
+        res.labels_sumdurations[label] = sum(res.labels_durations[label])
+        sum_durations += res.labels_sumdurations[label]
+    # sort by more frequent (in number)
+    for label, nb in res.labels_count.most_common():
+        nbpercent= float(nb) / count;
+        sdur=res.labels_sumdurations[label];
+        sdurpercent = sdur / sum_durations;
+        print(prefix+"label:'{label}' nb={nb} ({nbpercent:.0%}), sum_durations={sdur:.3f} ({sdurpercent:.0%})".format(**locals()))
+        print(prefix+"  durations: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f}, {s.Max:.3f}]".format(s=stats(res.labels_durations[label]), **locals()))
+        if moreStats:
+            moreStats(res.labels_annotations[label], prefix=prefix+"  ");
+    
+def intraDelays(res, prefix=""):
+    """
+    Compute the End-Start and Mid-Mid delays stats
+    """
+    from annotationdata.filter.delay_relations import IntervalsDelay
+    # check res.tier or res is the tier
+    if not hasattr(res, 'tier'):
+        tier = res;
+        res = namedtuple('res', "tier, end_start_delays, end_start_delays_stats, middle_middle_delays, middle_middle_delays_stats")
+        res.tier = tier
+
+    # (2) Compute End-Start and Mid-Mid delays
+    if len(res.tier)>1:
+        esPred = IntervalsDelay.create('end_start_min',0.)  # compute the end-start delays
+        mmPred = IntervalsDelay.create('mid_mid_min',0.)  # compute the middle-middle delays
+        res.end_start_delays=[]; res.middle_middle_delays=[];
+        lastAnn=None
+        for ann in res.tier:
+            # inter annotation delays
+            if lastAnn is not None:
+                res.end_start_delays.append(esPred(lastAnn, ann))
+                res.middle_middle_delays.append(mmPred(lastAnn, ann))
+            lastAnn = ann
+        res.end_start_delays_stats = stats(res.end_start_delays);
+        res.middle_middle_delays_stats = stats(res.middle_middle_delays)
+        firstStart = res.tier[0].GetLocation().GetBeginMidpoint()
+        firstMiddle = (res.tier[0].GetLocation().GetBeginMidpoint() + res.tier[0].GetLocation().GetEndMidpoint()) / 2;
+        print(prefix+"first start at {firstStart}, inter end-start delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~}, {s.Max:.3f~}]".format(s=res.end_start_delays_stats, **locals()))
+        print(prefix+"first middle point at {firstMiddle}, inter middle-middle delays: mean={s.Mean:.3f}, std.dev.={s.StdDev:.3f} [{s.Min:.3f~}, {s.Max:.3f~}]".format(s=res.middle_middle_delays_stats, **locals()))
+    return res;
+
+def normLabelWithSep(label, split="\s*\+\s*", sep=" + ", sort=True):
+    elems = re.split(split, label)
+    if sort:
+        elems = sorted(elems)
+    return sep.join(elems)
 
 def counterWithPercent(cnt, sep=', ', order='most_common', fmt='"{k}":{v} ({p:.1%})'):
     s = sum(cnt.values())
@@ -464,10 +742,10 @@ def stats(lst):
         - Mean : the mean value
     """
     stats = namedtuple('Stats', "Min,Max,Mean,StdDev") # list of fields
-    stats.Min = min(lst)
-    stats.Max = max(lst)
-    stats.Mean = mean(lst)
-    stats.StdDev = stddev(lst, stats.Mean)
+    stats.Min = min(lst) if len(lst) else 0.;
+    stats.Max = max(lst) if len(lst) else 0.;
+    stats.Mean = mean(lst) if len(lst) else 0.;
+    stats.StdDev = stddev(lst, stats.Mean) if len(lst) else 0.;
     return stats
 
 def mean(lst):

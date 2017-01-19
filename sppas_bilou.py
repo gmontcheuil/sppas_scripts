@@ -55,12 +55,12 @@ parser.add_argument("-t", "--tier", "--tier-name", action='append', dest='tiers_
     )
 # BILOU tier(s)
 # - base time
-parser.add_argument("-b", "--base", "--base-time", dest='base_time'
+parser.add_argument("-b", "--base", "--base-time", dest='base_time', type=float
     , help="time subdivision of the BILOU tier (in second, default:'%f')"%opts.base_time
     , metavar='<second>'
     )
 # - radius
-parser.add_argument("-r", "--radius", dest='radius'
+parser.add_argument("-r", "--radius", dest='radius', type=float
         , help="precision (radius) of the BILOU tier's time points (default:'%f')"%opts.radius
     , metavar='<second>'
     )
@@ -71,9 +71,9 @@ parser.add_argument("--bilu-format", dest='bilu_format'
             +"\n\tFirst field({0:}) is for Begin/Inside/Last/Unit"
             +"\n\tSecond field({1:}) is for the annotation label"
             +"\nExamples:"
-            +"\n\t'{}-{}' => full word with label, e.g.'Begin-Label')"
-            +"\n\t'{:.1}-{}' => first letter with label, e.g.'B-Label')"
-            +"\n\t'{:.1}' => first letter without label, e.g.'B')"
+            +"\n\t'{}-{}' => full word with label, e.g.'Begin-Label'"
+            +"\n\t'{:.1}-{}' => first letter with label, e.g.'B-Label'"
+            +"\n\t'{:.1}' => first letter without label, e.g.'B'"
     , metavar='<format>'
     )
 # - Outside label

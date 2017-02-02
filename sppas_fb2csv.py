@@ -53,11 +53,12 @@ def process_files(files, opts):
     """ Process each file
         @param files the file(s) to process
     """
+    annotationdata.aio = sppas_tools.getAnnotationdataAio(); # import annotationdata.aio or annotationdata.io
     from annotationdata import Transcription
     for f in files:
         print("[%s] Loading annotation file..." % f)
         # Read an annotated file, put content in a Transcription object.
-        trs = annotationdata.io.read(f)
+        trs = annotationdata.aio.read(f)
         print("[%s] Number of tiers:%d" % (f, trs.GetSize()))
         tier = sppas_tools.tierFind(trs, opts.tier_name)
         if tier is None:
@@ -71,7 +72,7 @@ def process_files(files, opts):
         csv.Append(tier)
         of = re.sub(r"\.\w+$", "-"+opts.tier_name+".csv", f)
         print("[%s] Saving tier into %s" % (f, of))
-        annotationdata.io.write(of, csv)
+        annotationdata.aio.write(of, csv)
         
 
 # ----------------------------------------------------------------------------

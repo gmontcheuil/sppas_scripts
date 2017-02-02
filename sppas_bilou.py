@@ -275,11 +275,12 @@ def process_files(files, opts):
     """ Process each file
         @param files the file(s) to process
     """
+    annotationdata.aio = sppas_tools.getAnnotationdataAio(); # import annotationdata.aio or annotationdata.io
     from annotationdata import Transcription, Tier  #, TimePoint, TimeInterval, Label, Annotation
     for f in files:
         print("[%s] Loading annotation file..." % f)
         # Read an annotated file
-        trs = annotationdata.io.read(f)
+        trs = annotationdata.aio.read(f)
         print("[%s] Number of tiers:%d" % (f, trs.GetSize()))
 
         # Prepare the output Transcription
@@ -313,7 +314,7 @@ def process_files(files, opts):
         (root, ext) = os.path.splitext(f)
         of = opts.out_file_format.format(root,"+".join(opts.tiers_names)) + ext
         print("[%s] Saving annotations into %s" % (f, of))
-        annotationdata.io.write(of, destTrs)
+        annotationdata.aio.write(of, destTrs)
         
 # ----------------------------------------------------------------------------
 # --- Main stuffs

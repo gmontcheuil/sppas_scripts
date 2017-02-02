@@ -48,11 +48,12 @@ def process_files(files, opts):
     """ Process each file
         @param files the file(s) to process
     """
+    annotationdata.aio = sppas_tools.getAnnotationdataAio(); # import annotationdata.aio or annotationdata.io
     
     for f in files:
         print("[%s] Loading annotation file..." % f)
         # Read an annotated file, put content in a Transcription object.
-        trs = annotationdata.io.read(f)
+        trs = annotationdata.aio.read(f)
         print("[%s] Number of tiers:%d" % (f, trs.GetSize()))
       
         # Compute the intra annotation delays
@@ -108,7 +109,7 @@ def process_files(files, opts):
         # Write the resulting file
         of = re.sub(r"\.\w+$", "-fbAfter\g<0>", f)
         print("[%s] Saving file into %s" % (f, of))
-        annotationdata.io.write(of, trs)
+        annotationdata.aio.write(of, trs)
 
 # ----------------------------------------------------------------------------
 # --- sub-process methods

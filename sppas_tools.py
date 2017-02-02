@@ -45,7 +45,8 @@ def load_sppas(opts):
         else:
             sys.exit("Any SPPAS directory !")
     
-    sys.path.append(os.path.join(opts.sppas_dir, 'sppas', 'src'))
+    sppas_path = os.path.abspath(os.path.join(opts.sppas_dir, 'sppas', 'src'))
+    sys.path.insert(0,sppas_path)
     # Import SPPAS API
     #global annotationdata
     import annotationdata.io

@@ -55,6 +55,21 @@ def load_sppas(opts):
     __main__.annotationdata = annotationdata
     #print(globals())
 
+def getAnnotationdataAio():
+    """ Return the SPPAS annotationdata.aio module
+         (or annotationdata.io from older version)
+    """
+    try:
+        import annotationdata.aio as aio
+        #print("annotationdata.aio imported as aio")
+    except ImportError:
+        import annotationdata.io as aio
+        #print("annotationdata.io imported as aio")
+    #import __main__
+    #__main__.aio = aio
+    return aio
+
+
 # ----------------------------------------------------------------------------
 def parserAddLoadSPPASArgument(parser):
     if parser is None:

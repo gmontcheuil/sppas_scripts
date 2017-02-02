@@ -20,7 +20,7 @@ import sys, os
 def load_sppas(opts):
     """ Method to load SPPAS API
         Use global sppas_dir/sppas_version to find the SPPAS directory
-        Then import annotationdata.io
+        Then import annotationdata
     """
     # (a) SPPAS_DIR
     if opts.sppas_dir:
@@ -49,7 +49,7 @@ def load_sppas(opts):
     sys.path.insert(0,sppas_path)
     # Import SPPAS API
     #global annotationdata
-    import annotationdata.io
+    import annotationdata
     # copy 'annotationdata' into __main__ namespace
     import __main__
     __main__.annotationdata = annotationdata

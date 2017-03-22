@@ -28,6 +28,7 @@ opts = argparse.Namespace(
     out_file="merged",    # output file (if any extension, use the 1st file extension)
     # (first) tiers order
     first_tiers=[], # list of tiers to put at the start of the output Transcription
+    exclude_tiers=[], # list of tiers to remove of the output Transcription
     case_sensitive=True,
     )
 
@@ -53,6 +54,12 @@ parser.add_argument("-o","--outfile", dest='out_file'
 parser.add_argument("-t", "--first-tiers", action='append', dest='first_tiers'
     , help="Tier(s) to put first in the output file"
             +"\nCan specify various separated by a comma and/or repeat the option,\nb.e. -t tier1,tier2 -t tier3"
+    , metavar='<tier>'
+    )
+# - exclude tier(s)
+parser.add_argument("-x", "--exclude-tiers", action='append', dest='exclude_tiers'
+    , help="Tier(s) to put remove of the output file"
+            +"\nCan specify various separated by a comma and/or repeat the option,\nb.e. -x tier1,tier2 -t tier3"
     , metavar='<tier>'
     )
 # - ignore case
@@ -102,17 +109,27 @@ def process_files(files, opts):
     if mergedTrs is None:
         print("ERROR any merged Transcription")
         return
+    # Exclude tiers
+    if opts.exclude_tiers:
+        for tierName in opts.exclude_tiers:
+            tierIndex = mergedTrs.GetIndex(tierName, opts.case_sensitive)
+            if tierIndex < 0:
+                print("[exclude] (!) any tier named '%s'" % tierName)
+                continue
+            else:
+                tier = mergedTrs.Pop(tierIndex)
+                print("[exclude] Remove tier '%s' in position %i" % (tier.GetName(), tierIndex))
     # Reorder tiers
     if opts.first_tiers:
         index=0
         for tierName in opts.first_tiers:
             tierIndex = mergedTrs.GetIndex(tierName, opts.case_sensitive)
             if tierIndex < 0:
-                print("(!) any tier named '%s'" % tierName)
+                print("[reorder] (!) any tier named '%s'" % tierName)
                 continue
             elif tierIndex != index:
                 tier = mergedTrs.Pop(tierIndex)
-                print("Move tier '%s' to position %i" % (tier.GetName(), index))
+                print("[reorder] Move tier '%s' to position %i" % (tier.GetName(), index))
                 mergedTrs.Add(tier, index)
             index+=1
     # Saving file
@@ -142,13 +159,19 @@ def main():
         parser.print_help()
         exit(1)
     if opts.first_tiers: # split first_tiers if necessary
-        splitted_tiers = []
-        for item in opts.first_tiers:
-            spitems = item.split(',')
-            splitted_tiers.extend(spitems)
-        opts.first_tiers = splitted_tiers
+        opts.first_tiers = split_tiers_option(opts.first_tiers)
+    if opts.exclude_tiers: # split exclude_tiers if necessary
+        opts.exclude_tiers = split_tiers_option(opts.exclude_tiers)
     sppas_tools.load_sppas(opts);
     process_files(opts.files, opts)
+
+def split_tiers_option(tiers):
+    splitted_tiers = []
+    for item in tiers:
+        spitems = item.split(',')
+        splitted_tiers.extend(spitems)
+    return splitted_tiers
+
 
 # ----------------------------------------------------------------------------
 # This is the python entry point:

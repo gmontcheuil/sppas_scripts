@@ -4,6 +4,7 @@ Initially a python module (`sppas_tool.py`) to [choose between various versions]
 
 Then a couple of scripts for varied tasks :
  - [showing basic information](#sppas_infopy--show-basic-information-about-annotation-files) about annotation files
+ - [convert between format](#sppas_convertpy--convert-to-another-format) convert between supported format
  - [CSV extraction](#sppas_fb2csvpy--extract-a-tier-into-a-csv-file)
  - [merge tiers from various files](#sppas_mergepy--merge-andor-reorder-tiers-from-various-files)
  - [boundaries/BILOU annotation](#sppas_boundariespysppas_biloupy--create-boundaries-or-bilou-representations-of-annotations)
@@ -98,7 +99,22 @@ Print something like :
    [4] 'P2_Tokens', [5] 'P2_Feedbacks', [6] 'Script', [7] 'P1_Gesture'
    [8] 'P2_Gesture'
 [AnELANFile.eaf] Min/Max times: [ 0.0 ; 937.985 ]
-````
+```
+
+### sppas_convert.py : convert to another format
+
+Convert file(s) into another format.
+The format is given by the `-t` option that take a valid extension (default is eaf for ELAN annotation file).
+
+```sh
+python sppas_convert.py APraatFile.TextGrid
+```
+Produce the ELAN file `APraatFile.eaf`.
+
+```sh
+python sppas_convert.py -t xra APraatFile.TextGrid AnELANFile.eaf
+```
+Convert the 2 files to (SPPAS) XRA format (`APraatFile.xra` and `AnELANFile.xra`).
 
 ### sppas_fb2csv.py : extract a tier into a CSV file
 
